@@ -13,6 +13,12 @@ class PostgreSQLFallbackHandler
     @masters_down = DistributedCache.new('masters_down', namespace: false)
     @mutex = Mutex.new
     @initialized = false
+
+    MessageBus.subscribe("/global/database_down") do |payload|
+      RailsMultisite::ConnectionManagement.with_connection(payload.data['db']) do
+        clear_connections
+      end
+    end
   end
 
   def verify_master
@@ -38,10 +44,11 @@ class PostgreSQLFallbackHandler
     synchronize { @masters_down[namespace] }
   end
 
-  def master_down=(args)
+  def master_down
     synchronize do
-      @masters_down[namespace] = args
-      Sidekiq.pause! if args && !Sidekiq.paused?
+      @masters_down[namespace] = true
+      Sidekiq.pause! if !Sidekiq.paused?
+      MessageBus.publish('/global/database_down', db: namespace)
     end
   end
 
@@ -63,8 +70,7 @@ class PostgreSQLFallbackHandler
 
           if is_connection_active
             logger.warn "#{log_prefix}: Master server is active. Reconnecting..."
-            ActiveRecord::Base.clear_active_connections!
-            ActiveRecord::Base.clear_all_connections!
+            clear_connections
             self.master_up(key)
             disable_readonly_mode
             Sidekiq.unpause!
@@ -80,6 +86,11 @@ class PostgreSQLFallbackHandler
   def setup!
     @masters_down.clear
     disable_readonly_mode
+  end
+
+  def clear_connections
+    ActiveRecord::Base.clear_active_connections!
+    ActiveRecord::Base.clear_all_connections!
   end
 
   private
@@ -130,12 +141,13 @@ module ActiveRecord
           connection = postgresql_connection(config)
           fallback_handler.initialized ||= true
         rescue PG::ConnectionBad => e
-          fallback_handler.master_down = true
+          fallback_handler.master_down
           fallback_handler.verify_master
 
           if !fallback_handler.initialized
             return postgresql_fallback_connection(config)
           else
+            fallback_handler.clear_connections
             raise e
           end
         end

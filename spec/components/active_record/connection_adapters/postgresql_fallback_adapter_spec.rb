@@ -30,9 +30,7 @@ describe ActiveRecord::ConnectionHandling do
     postgresql_fallback_handler.initialized = true
 
     ['default', multisite_db].each do |db|
-      with_multisite_db(db) do
-        postgresql_fallback_handler.master_down = false
-      end
+      postgresql_fallback_handler.master_up(db)
     end
   end
 
@@ -75,7 +73,7 @@ describe ActiveRecord::ConnectionHandling do
           ).returns(@replica_connection)
         end
 
-        expect(postgresql_fallback_handler.master_down?).to eq(false)
+        expect(postgresql_fallback_handler.master_down?).to eq(nil)
 
         expect { ActiveRecord::Base.postgresql_fallback_connection(config) }
           .to raise_error(PG::ConnectionBad)
@@ -87,7 +85,7 @@ describe ActiveRecord::ConnectionHandling do
         expect(Sidekiq.paused?).to eq(true)
 
         with_multisite_db(multisite_db) do
-          expect(postgresql_fallback_handler.master_down?).to eq(false)
+          expect(postgresql_fallback_handler.master_down?).to eq(nil)
 
           expect { ActiveRecord::Base.postgresql_fallback_connection(multisite_config) }
             .to raise_error(PG::ConnectionBad)
