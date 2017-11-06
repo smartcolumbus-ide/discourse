@@ -494,6 +494,10 @@ export default Ember.Component.extend({
       }
     },
 
+    togglePreview() {
+      this.sendAction('togglePreview');
+    },
+
     showUploadModal(toolbarEvent) {
       this.sendAction('showUploadSelector', toolbarEvent);
     },
